@@ -1,15 +1,40 @@
 #!/usr/bin/env python3
 """Deterministic Embedded/IoT project build & protocol test verifier."""
 import argparse
+import os
 import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 
-def run_cmd(cmd, cwd: Path):
+def find_project_python(ws: Path) -> str:
+    candidates = [
+        ws / ".venv" / "bin" / "python",
+        ws / "venv" / "bin" / "python",
+        ws / "backend" / ".venv" / "bin" / "python",
+        ws / "backend" / "venv" / "bin" / "python",
+        ws.parent / ".venv" / "bin" / "python",
+        ws.parent / "venv" / "bin" / "python",
+    ]
+    srv_dev = Path("/srv/dev")
+    if srv_dev.is_dir():
+        for name in {ws.name.lower(), ws.parent.name.lower()}:
+            candidates.extend([
+                srv_dev / name / "backend" / ".venv" / "bin" / "python",
+                srv_dev / name / ".venv" / "bin" / "python",
+            ])
+    for cand in candidates:
+        if cand.is_file() and os.access(cand, os.X_OK):
+            res = subprocess.run([str(cand), "-m", "pytest", "--version"], capture_output=True, text=True)
+            if res.returncode == 0:
+                return str(cand)
+    return sys.executable
+
+
+def run_cmd(cmd, cwd: Path, env=None):
     print(f"[iot_verify] Running: {' '.join(cmd)}")
-    res = subprocess.run(cmd, cwd=str(cwd), capture_output=True, text=True)
+    res = subprocess.run(cmd, cwd=str(cwd), env=env, capture_output=True, text=True)
     if res.stdout:
         print(res.stdout[-1500:])
     if res.stderr:
@@ -33,8 +58,19 @@ def main():
             return 1
         checks_run += 1
 
-    if list(proj.glob("tests/test_*.py")) or list(proj.glob("test_*.py")):
-        rc = run_cmd([sys.executable, "-m", "pytest", "-q"], proj)
+    has_root_tests = bool(list(proj.glob("tests/test_*.py")) or list(proj.glob("test_*.py")))
+    has_backend_tests = bool(list(proj.glob("backend/tests/test_*.py")))
+    if has_root_tests or has_backend_tests:
+        py_bin = find_project_python(proj)
+        test_cwd = proj / "backend" if has_backend_tests and not has_root_tests else proj
+        cmd = [py_bin, "-m", "pytest", "-q", "-o", "addopts="]
+        env = os.environ.copy()
+        shm = Path("/dev/shm")
+        if shm.is_dir() and os.access(shm, os.W_OK):
+            cmd.extend(["--basetemp", str(shm / f"pytest-iot-{os.getpid()}")])
+            env["TMPDIR"] = str(shm)
+            env["SQLITE_TMPDIR"] = str(shm)
+        rc = run_cmd(cmd, test_cwd, env=env)
         if rc != 0:
             print("FAIL: Protocol/unit test suite failed.")
             return 1

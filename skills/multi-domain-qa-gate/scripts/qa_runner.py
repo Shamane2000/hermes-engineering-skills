@@ -2,12 +2,38 @@
 """Universal Multi-Domain QA Gate Runner for Hermes Agent."""
 import argparse
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
 import yaml
 
 FORBIDDEN_TREE_DIRS = {"venv", ".venv", "node_modules", "__pycache__"}
+FORBIDDEN_SUFFIXES = (".db-journal", ".db-wal", ".db-shm", ".pyc")
+
+
+def find_project_python(ws: Path) -> str:
+    candidates = [
+        ws / ".venv" / "bin" / "python",
+        ws / "venv" / "bin" / "python",
+        ws / "backend" / ".venv" / "bin" / "python",
+        ws / "backend" / "venv" / "bin" / "python",
+        ws.parent / ".venv" / "bin" / "python",
+        ws.parent / "venv" / "bin" / "python",
+    ]
+    srv_dev = Path("/srv/dev")
+    if srv_dev.is_dir():
+        for name in {ws.name.lower(), ws.parent.name.lower()}:
+            candidates.extend([
+                srv_dev / name / "backend" / ".venv" / "bin" / "python",
+                srv_dev / name / ".venv" / "bin" / "python",
+            ])
+    for cand in candidates:
+        if cand.is_file() and os.access(cand, os.X_OK):
+            res = subprocess.run([str(cand), "-m", "pytest", "--version"], capture_output=True, text=True)
+            if res.returncode == 0:
+                return str(cand)
+    return sys.executable
 
 
 def check_git_pollution(ws: Path) -> list:
@@ -17,8 +43,8 @@ def check_git_pollution(ws: Path) -> list:
         for line in res.stdout.splitlines():
             path_str = line[3:].strip()
             parts = Path(path_str).parts
-            if any(p in FORBIDDEN_TREE_DIRS for p in parts):
-                errors.append(f"Git pollution: '{path_str}' (virtual environment or cache must be in .gitignore)")
+            if any(p in FORBIDDEN_TREE_DIRS for p in parts) or path_str.endswith(FORBIDDEN_SUFFIXES):
+                errors.append(f"Git pollution: '{path_str}' (runtime/cache artifact must not pollute working tree)")
     return errors
 
 
@@ -31,7 +57,7 @@ def check_syntax(ws: Path) -> tuple[list, int]:
         if p.suffix == ".py":
             checked += 1
             try:
-                compile(p.read_text(encoding='utf-8'), str(p), 'exec')
+                compile(p.read_text(encoding="utf-8"), str(p), "exec")
             except SyntaxError as e:
                 errors.append(f"Python syntax error in {p.relative_to(ws)}: {e}")
         elif p.suffix == ".json":
@@ -55,9 +81,19 @@ def run_tests_if_present(ws: Path) -> list:
         if not any(part in FORBIDDEN_TREE_DIRS or part == ".git" for part in p.parts)
     ]
     if py_tests:
-        res = subprocess.run([sys.executable, "-m", "pytest", "-q"], cwd=str(ws), capture_output=True, text=True)
+        py_bin = find_project_python(ws)
+        test_cwd = ws / "backend" if (ws / "backend" / "tests").is_dir() else ws
+        cmd = [py_bin, "-m", "pytest", "-q", "-o", "addopts="]
+        env = os.environ.copy()
+        shm = Path("/dev/shm")
+        if shm.is_dir() and os.access(shm, os.W_OK):
+            basetemp = shm / f"pytest-qa-{os.getpid()}"
+            cmd.extend(["--basetemp", str(basetemp)])
+            env["TMPDIR"] = str(shm)
+            env["SQLITE_TMPDIR"] = str(shm)
+        res = subprocess.run(cmd, cwd=str(test_cwd), env=env, capture_output=True, text=True)
         if res.returncode != 0:
-            errors.append(f"pytest failed (exit {res.returncode}):\n{(res.stdout + res.stderr)[-1000:]}")
+            errors.append(f"pytest ({py_bin}) failed (exit {res.returncode}):\n{(res.stdout + res.stderr)[-1000:]}")
     return errors
 
 
