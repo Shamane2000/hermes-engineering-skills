@@ -1,0 +1,23 @@
+name: Validate Hermes Skills
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install PyYAML
+        run: pip install pyyaml
+      - name: Run Hermes Hardline Skill Validator
+        run: python3 scripts/validate_hermes_skills.py
+      - name: Run Self-QA Gate
+        run: |
+          python3 skills/security-and-hardening/scripts/security_audit.py --repo .
+          python3 skills/multi-domain-qa-gate/scripts/qa_runner.py --workspace .

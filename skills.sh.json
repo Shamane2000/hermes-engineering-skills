@@ -1,0 +1,10 @@
+{
+  "security-and-hardening": "software-development",
+  "spec-driven-development": "software-development",
+  "api-and-interface-design": "software-development",
+  "performance-and-observability": "software-development",
+  "architecture-decision-records": "software-development",
+  "smart-home-qa-gate": "smart-home",
+  "embedded-iot-qa-gate": "software-development",
+  "multi-domain-qa-gate": "devops"
+}

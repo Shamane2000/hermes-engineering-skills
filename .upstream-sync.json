@@ -1,0 +1,12 @@
+{
+  "upstreams": {
+    "addyosmani/agent-skills": {
+      "branch": "main",
+      "last_checked": "2026-11-15"
+    },
+    "obra/superpowers": {
+      "branch": "main",
+      "last_checked": "2026-11-15"
+    }
+  }
+}
