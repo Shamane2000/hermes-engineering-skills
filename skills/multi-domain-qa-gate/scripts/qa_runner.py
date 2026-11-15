@@ -91,6 +91,7 @@ def run_tests_if_present(ws: Path) -> list:
             cmd.extend(["--basetemp", str(basetemp)])
             env["TMPDIR"] = str(shm)
             env["SQLITE_TMPDIR"] = str(shm)
+            env.setdefault("DATABASE_URL", f"sqlite:///{shm}/pytest-qa-{os.getpid()}.db")
         res = subprocess.run(cmd, cwd=str(test_cwd), env=env, capture_output=True, text=True)
         if res.returncode != 0:
             errors.append(f"pytest ({py_bin}) failed (exit {res.returncode}):\n{(res.stdout + res.stderr)[-1000:]}")

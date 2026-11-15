@@ -70,6 +70,7 @@ def main():
             cmd.extend(["--basetemp", str(shm / f"pytest-iot-{os.getpid()}")])
             env["TMPDIR"] = str(shm)
             env["SQLITE_TMPDIR"] = str(shm)
+            env.setdefault("DATABASE_URL", f"sqlite:///{shm}/pytest-qa-{os.getpid()}.db")
         rc = run_cmd(cmd, test_cwd, env=env)
         if rc != 0:
             print("FAIL: Protocol/unit test suite failed.")
