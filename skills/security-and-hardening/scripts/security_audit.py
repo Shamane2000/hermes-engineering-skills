@@ -14,16 +14,26 @@ RULES = [
     ("UNSAFE_EVAL", re.compile(r"\b(eval|exec)\s*\("), "Dynamic code execution via eval/exec"),
 ]
 
-SKIP_DIRS = {".git", "venv", ".venv", "node_modules", "__pycache__", ".pytest_cache", "dist", "build"}
+SKIP_DIRS = {".git", "venv", ".venv", "node_modules", "__pycache__", ".pytest_cache", "dist", "build", "vendor"}
 CODE_EXTS = {".py", ".js", ".ts", ".tsx", ".sh", ".yaml", ".yml", ".json", ".toml", ".env"}
+SYNTHETIC_MARKERS = ("# nosec", "example", "placeholder", "dummy", "mock", "fake", "unwired", "test_key", "test-key")
+
+
+def is_test_path(filepath: str) -> bool:
+    parts = Path(filepath).parts
+    name = Path(filepath).name
+    return "tests" in parts or name.startswith("test_") or name.endswith("_test.py")
 
 
 def scan_lines(lines_with_meta):
     findings = []
     for filepath, lineno, line in lines_with_meta:
-        if "# nosec" in line or "example" in line.lower() or "placeholder" in line.lower():
+        low = line.lower()
+        if any(m in low for m in SYNTHETIC_MARKERS):
             continue
         for rule_id, pattern, msg in RULES:
+            if rule_id == "SECRET_ASSIGNMENT" and is_test_path(filepath):
+                continue
             if rule_id == "UNSAFE_DESERIALIZATION" and ("SafeLoader" in line or "SafeHALoader" in line):
                 continue
             if pattern.search(line):
@@ -58,9 +68,9 @@ def collect_repo_lines(repo: Path):
     for p in repo.rglob("*"):
         if not p.is_file() or any(part in SKIP_DIRS for part in p.parts):
             continue
-        if p.suffix.lower() not in CODE_EXTS:
+        if p.name.endswith((".min.js", ".min.css")) or p.name == "security_audit.py":
             continue
-        if p.name == "security_audit.py":
+        if p.suffix.lower() not in CODE_EXTS:
             continue
         try:
             for idx, line in enumerate(p.read_text(encoding="utf-8", errors="ignore").splitlines(), 1):

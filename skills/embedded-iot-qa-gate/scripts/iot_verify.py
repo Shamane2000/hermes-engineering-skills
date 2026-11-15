@@ -58,6 +58,14 @@ def main():
             return 1
         checks_run += 1
 
+    for mk_dir in [proj, proj / "sim"]:
+        if (mk_dir / "Makefile").exists() and shutil.which("make"):
+            rc = run_cmd(["make"], mk_dir)
+            if rc != 0:
+                print(f"FAIL: Makefile build failed in {mk_dir}.")
+                return 1
+            checks_run += 1
+
     has_root_tests = bool(list(proj.glob("tests/test_*.py")) or list(proj.glob("test_*.py")))
     has_backend_tests = bool(list(proj.glob("backend/tests/test_*.py")))
     if has_root_tests or has_backend_tests:
